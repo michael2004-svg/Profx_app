@@ -1,6 +1,4 @@
-// dashboard.js
-
-// Utility function for DOM selection
+// Utility functions
 const $ = (selector, context = document) => context.querySelector(selector);
 const $$ = (selector, context = document) => Array.from(context.querySelectorAll(selector));
 
@@ -8,184 +6,401 @@ const $$ = (selector, context = document) => Array.from(context.querySelectorAll
 const state = {
   activeSection: 'feed',
   posts: [],
-  postsLeft: 3, // Increased for testing
-  notifications: [
-    { id: 'notif-1', message: 'New job match available!', time: new Date().toISOString(), read: false },
-    { id: 'notif-2', message: 'Sarah Miller liked your post.', time: new Date().toISOString(), read: false },
-    { id: 'notif-3', message: 'New message from Robert Johnson.', time: new Date().toISOString(), read: false },
-  ],
-  messages: [
-    { id: 'msg-1', sender: 'Sarah Miller', content: 'Hey, great post on ML!', time: new Date().toISOString() },
-    { id: 'msg-2', sender: 'Robert Johnson', content: 'Can we discuss React resources?', time: new Date().toISOString() },
-  ],
-  isCommenting: false,
-  attachedMedia: null, // For image, link, or document
-  polls: [], // Store polls
+  postsLeft: 10,
+  notifications: [],
+  messages: [],
+  attachedMedia: null,
+  polls: [],
 };
 
-// Initialize the app
-document.addEventListener('DOMContentLoaded', () => {
-  initializeApp();
-});
+// Supabase client
+const supabase = window.supabase.createClient(
+  'https://lhcneterxhyctrksvloe.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoY25ldGVyeGh5Y3Rya3N2bG9lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkwMjEyOTQsImV4cCI6MjA2NDU5NzI5NH0.7V0lgM3YGObRRSWe5YPXxO49KyoMxwFnQMBhmU8uCHE'
+);
 
-// Main initialization function
-function initializeApp() {
+// Initialize app
+async function initializeApp() {
   try {
-    // Set initial active section
-    showSection(state.activeSection);
-
-    // Event listeners for navigation buttons
-    $$('.nav-btn').forEach((btn) => {
-      btn.addEventListener('click', () => showSection(btn.getAttribute('onclick').match(/'([^']+)'/)[1], btn));
-    });
-
-    // Event listeners for post composer
-    $('#postContent').addEventListener('input', updatePostLimit);
-    $('.submit-post').addEventListener('click', createPost);
-
-    // Event listeners for post actions
-    $$('.action-btn').forEach((btn) => {
-      if (btn.classList.contains('bookmark')) {
-        btn.addEventListener('click', toggleBookmark);
+    console.log('initializeApp: Starting');
+    console.log('initializeApp: Checking session');
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    console.log('initializeApp: getSession response', { user: session?.user?.email, error: sessionError?.message });
+    if (sessionError || !session || !session.user) {
+      console.error('initializeApp: No valid session', sessionError?.message);
+      const urlParams = new URLSearchParams(window.location.search);
+      const redirectCount = parseInt(urlParams.get('redirectCount') || '0');
+      if (redirectCount > 2) {
+        showError('Redirect loop detected.');
+        return;
       }
-    });
+      window.location.href = `joinus.html?redirectCount=${redirectCount + 1}`;
+      return;
+    }
 
-    // Initialize media buttons
-    $$('.media-btn').forEach((btn) => {
-      btn.addEventListener('click', handleMediaAction);
-    });
+    console.log('initializeApp: Session found', session.user.email);
+    const today = new Date().toISOString().split('T')[0];
+    console.log('initializeApp: Querying posts for user', session.user.id);
+    const { data: postCount, error: countError } = await supabase
+      .from('posts')
+      .select('id')
+      .eq('user_id', session.user.id)
+      .gte('timestamp', `${today}T00:00:00Z`)
+      .lte('timestamp', `${today}T23:59:59Z`);
+    console.log('initializeApp: Post query response', { postCount: postCount?.length, error: countError?.message });
 
-    // Initialize notification and message buttons
-    $('.notification-btn').addEventListener('click', showNotifications);
-    $('.messages-btn').addEventListener('click', showMessages);
+    if (countError) throw countError;
 
-    // Load initial posts
-    loadPosts();
+    state.postsLeft = 10 - (postCount?.length || 0);
+    console.log('initializeApp: Posts left', state.postsLeft);
+    $('#postsLeft').textContent = state.postsLeft;
+
+    console.log('initializeApp: Calling fetchUserProfile');
+    await fetchUserProfile();
+    console.log('initializeApp: Calling initializeRealtime');
+    initializeRealtime();
   } catch (error) {
-    console.error('Error initializing app:', error);
-    showError('Failed to initialize the application. Please try again.');
+    console.error('Error initializing app:', error.message, error.stack);
+    const urlParams = new URLSearchParams(window.location.search);
+    const redirectCount = parseInt(urlParams.get('redirectCount') || '0');
+    if (redirectCount > 2) {
+      showError('Redirect loop detected.');
+      return;
+    }
+    window.location.href = `joinus.html?redirectCount=${redirectCount + 1}`;
   }
 }
-
-// Show specific section and update navigation
-function showSection(sectionId, button = null) {
+// Fetch user profile
+async function fetchUserProfile() {
   try {
-    // Update active section
-    $$('.section').forEach((section) => {
-      section.classList.toggle('active', section.id === `${sectionId}-section`);
-    });
-
-    // Update active navigation button
-    if (button) {
-      $$('.nav-btn').forEach((btn) => {
-        btn.classList.toggle('active', btn === button);
-        btn.setAttribute('aria-selected', btn === button);
-      });
+    showLoadingState();
+    console.log('fetchUserProfile: Starting');
+    
+    let user = null;
+    let error = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      console.log(`fetchUserProfile: Attempt ${attempt}`);
+      const { data: { user: fetchedUser }, error: fetchError } = await supabase.auth.getUser();
+      console.log('fetchUserProfile: getUser response', { user: fetchedUser ? { id: fetchedUser.id, email: fetchedUser.email } : null, error: fetchError?.message });
+      if (fetchError || !fetchedUser) {
+        console.warn(`fetchUserProfile: Attempt ${attempt} failed`, fetchError?.message);
+        error = fetchError;
+        if (attempt < 3) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
+      } else {
+        user = fetchedUser;
+        break;
+      }
     }
 
-    state.activeSection = sectionId;
-
-    // Load section-specific content
-    switch (sectionId) {
-      case 'feed':
-        loadPosts();
-        break;
-      case 'profile':
-        loadProfile();
-        break;
-      case 'career':
-        loadCareerAI();
-        break;
-      case 'cv':
-        loadCVParser();
-        break;
-      case 'communities':
-        loadCommunities();
-        break;
-      default:
-        console.warn(`Unknown section: ${sectionId}`);
+    if (error || !user) {
+      console.error('fetchUserProfile: Failed after retries', error?.message);
+      const urlParams = new URLSearchParams(window.location.search);
+      const redirectCount = parseInt(urlParams.get('redirectCount') || '0');
+      if (redirectCount > 2) {
+        showError('Redirect loop detected.');
+        return;
+      }
+      window.location.href = `joinus.html?redirectCount=${redirectCount + 1}`;
+      return;
     }
+
+    const name = user.user_metadata?.full_name || user.email;
+    const title = user.user_metadata?.title || 'Professional';
+    const avatar = user.user_metadata?.avatar_url || generateAvatar(name);
+
+    updateProfileUI({ name, title, avatar });
   } catch (error) {
-    console.error(`Error showing section ${sectionId}:`, error);
-    showError(`Failed to load ${sectionId} section.`);
+    console.error('fetchUserProfile: Unexpected error', error.message, error.stack);
+    throw error; // Rethrow to catch in initializeApp
+  } finally {
+    hideLoadingState();
+  }
+}
+// Update profile UI
+function updateProfileUI({ name, title, avatar }) {
+  state.username = name;
+  if ($('#sidebarName')) $('#sidebarName').textContent = name;
+  if ($('#sidebarTitle')) $('#sidebarTitle').textContent = title;
+  if ($('#sidebarAvatar img')) {
+    $('#sidebarAvatar img').src = avatar;
+    $('#sidebarAvatar img').alt = name;
+  }
+  if ($('.user-avatar')) {
+    $('.user-avatar').src = avatar;
+    $('.user-avatar').alt = name;
+  }
+  if ($('.composer-avatar')) {
+    $('.composer-avatar').src = avatar;
+    $('.composer-avatar').alt = name;
+  }
+  $$('.username').forEach((element) => {
+    if (element.id !== 'sidebarName') element.textContent = name;
+  });
+}
+
+// Generate fallback avatar
+function generateAvatar(name) {
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=667eea&color=fff&size=80&font-size=0.6`;
+}
+
+// Show/hide loading state
+function showLoadingState() {
+  if ($('#sidebarName')) $('#sidebarName').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+  if ($('#sidebarTitle')) $('#sidebarTitle').textContent = 'Loading...';
+}
+function hideLoadingState() {}
+
+// Real-time subscriptions
+function initializeRealtime() {
+  supabase
+    .channel('posts')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, (payload) => {
+      state.posts.unshift(payload.new);
+      loadPosts();
+      showSuccess('New post added!');
+    })
+    .subscribe();
+
+  supabase
+    .channel('comments')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'comments' }, (payload) => {
+      const postElement = $(`#${payload.new.post_id}`);
+      if (postElement) {
+        toggleComments(postElement.querySelector('.action-btn i.fa-comment').parentElement);
+      }
+    })
+    .subscribe();
+
+  supabase
+    .channel('notifications')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${supabase.auth.getUser().then(({ data: { user } }) => user.id)}` }, (payload) => {
+      state.notifications.push({
+        id: payload.new.id,
+        message: payload.new.message,
+        time: payload.new.created_at,
+        read: false,
+      });
+      $('.notification-badge').textContent = state.notifications.filter((n) => !n.read).length;
+      showSuccess('New notification received!');
+    })
+    .subscribe();
+}
+
+// Show section
+function showSection(sectionId, button = null) {
+  $$('.section').forEach((section) => {
+    section.classList.toggle('active', section.id === `${sectionId}-section`);
+  });
+
+  if (button) {
+    $$('.nav-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn === button);
+      btn.setAttribute('aria-selected', btn === button);
+    });
+  }
+
+  state.activeSection = sectionId;
+
+  switch (sectionId) {
+    case 'feed':
+      loadPosts();
+      break;
+    case 'profile':
+      loadProfile();
+      break;
+    case 'career':
+      loadCareerAI();
+      break;
+    case 'cv':
+      loadCVParser();
+      break;
+    case 'communities':
+      loadCommunities();
+      break;
+    default:
+      console.warn(`Unknown section: ${sectionId}`);
   }
 }
 
-// Load posts for the feed
-function loadPosts() {
+// Load posts
+async function loadPosts() {
   try {
     const feedContainer = $('#feed-container');
-    feedContainer.innerHTML = ''; // Clear existing posts
-    state.posts.forEach((post) => {
+    feedContainer.innerHTML = '';
+
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data: posts, error } = await supabase
+      .from('posts')
+      .select('*')
+      .order('timestamp', { ascending: false });
+
+    if (error) throw error;
+
+    state.posts = posts;
+
+    const { data: likedPosts } = await supabase
+      .from('likes')
+      .select('post_id')
+      .eq('user_id', user.id);
+
+    const likedPostIds = likedPosts?.map((like) => like.post_id) || [];
+
+    for (const post of posts) {
       const postElement = createPostElement(post);
-      feedContainer.appendChild(postElement);
-    });
-    // Re-attach event listeners for dynamically created posts
-    $$('.action-btn').forEach((btn) => {
-      if (btn.classList.contains('bookmark')) {
-        btn.addEventListener('click', toggleBookmark);
-      } else if (btn.querySelector('i.fa-thumbs-up')) {
-        btn.addEventListener('click', toggleUpvote);
-      } else if (btn.querySelector('i.fa-comment')) {
-        btn.addEventListener('click', toggleComments);
-      } else if (btn.querySelector('i.fa-share')) {
-        btn.addEventListener('click', sharePost);
+      if (likedPostIds.includes(post.id)) {
+        const likeBtn = postElement.querySelector('.action-btn i.fa-thumbs-up').parentElement;
+        likeBtn.classList.add('active');
+        likeBtn.querySelector('i').className = 'fas fa-thumbs-up';
       }
+      feedContainer.appendChild(postElement);
+    }
+
+    $$('.action-btn').forEach((btn) => {
+      if (btn.classList.contains('bookmark')) btn.addEventListener('click', toggleBookmark);
+      if (btn.querySelector('i.fa-thumbs-up')) btn.addEventListener('click', toggleUpvote);
+      if (btn.querySelector('i.fa-comment')) btn.addEventListener('click', toggleComments);
+      if (btn.querySelector('i.fa-share')) btn.addEventListener('click', sharePost);
     });
-    // Re-attach poll voting listeners
+
     $$('.poll-option').forEach((option) => {
       option.addEventListener('click', votePoll);
     });
   } catch (error) {
     console.error('Error loading posts:', error);
-    showError('Failed to load posts.');
+    showError('Could not load posts.');
   }
 }
 
-// Create a new post
-function createPost() {
+// Create post
+async function createPost(postData) {
   try {
-    const content = DOMPurify.sanitize($('#postContent').value.trim());
-    if (!content && !state.attachedMedia) {
-      showError('Post content or media cannot be empty.');
-      return;
+    // Debug what we received
+    console.log('createPost: Function called with arguments:', arguments.length);
+    console.log('createPost: postData type:', typeof postData);
+    console.log('createPost: postData value:', postData);
+    console.log('createPost: postData stringified:', JSON.stringify(postData));
+    
+    // Input validation - check if postData exists
+    if (!postData) {
+      console.error('createPost: postData is falsy:', postData);
+      throw new Error('postData is required');
+    }
+    
+    if (typeof postData !== 'object') {
+      console.error('createPost: postData is not an object, it is:', typeof postData);
+      throw new Error('postData must be an object');
     }
 
-    if (state.postsLeft <= 0) {
-      showError('You have reached your daily post limit.');
-      return;
+    // Log function entry and input
+    console.log('createPost: Starting', {
+      postData: {
+        user_id: postData.user_id,
+        author: postData.author,
+        content: postData.content,
+        avatar: postData.avatar,
+        tags: postData.tags,
+        media: postData.media
+      },
+      timestamp: new Date().toISOString()
+    });
+
+    // Verify session before query
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+    console.log('createPost: Session check', {
+      user: session?.user?.email,
+      userId: session?.user?.id,
+      error: sessionError?.message
+    });
+    if (sessionError || !session || !session.user) {
+      throw new Error(`No valid session: ${sessionError?.message || 'No session'}`);
     }
 
-    const newPost = {
-      id: `post-${Date.now()}`,
-      author: $('#sidebarName').textContent,
-      avatar: $('#sidebarAvatar img').src,
-      content,
-      media: state.attachedMedia,
-      timestamp: new Date().toISOString(),
-      likes: 0,
-      comments: [],
-      shares: 0,
-      tags: extractTags(content),
+    // Validate required content
+    if (!postData.content || typeof postData.content !== 'string' || postData.content.trim().length === 0) {
+      throw new Error('Content is required and must be a non-empty string');
+    }
+
+    // Ensure postData has required fields
+    const validatedPost = {
+      user_id: session.user.id,
+      author: postData.author || session.user.email,
+      content: postData.content.trim(),
+      avatar: postData.avatar || session.user.user_metadata?.avatar_url,
+      media: postData.media || null,
+      tags: Array.isArray(postData.tags) ? postData.tags : [],
+      timestamp: new Date().toISOString()
     };
+    console.log('createPost: Validated post data', validatedPost);
 
-    state.posts.unshift(newPost);
-    state.postsLeft--;
-    $('#postsLeft').textContent = state.postsLeft;
-    $('#postContent').value = '';
-    state.attachedMedia = null;
-    $('.composer-media-preview').innerHTML = ''; // Clear media preview
+    if (!validatedPost.user_id || !validatedPost.author || !validatedPost.content) {
+      throw new Error('Missing required fields: user_id, author, or content');
+    }
 
-    // Update UI
-    loadPosts();
-    showSuccess('Post created successfully!');
+    // Execute insert
+    console.log('createPost: Sending insert query');
+    console.log('createPost: Data being inserted:', JSON.stringify(validatedPost, null, 2));
+    console.log('createPost: Supabase client status:', supabase ? 'Connected' : 'Not connected');
+    
+    const { data, error } = await supabase.from('posts').insert([validatedPost]).select();
+    
+    console.log('createPost: Raw Supabase response:', { data, error });
+    console.log('createPost: Insert response details', {
+      success: !error,
+      dataCount: data ? data.length : 0,
+      fullData: data,
+      error: error ? { 
+        message: error.message, 
+        code: error.code, 
+        details: error.details,
+        hint: error.hint,
+        fullError: error
+      } : null
+    });
+
+    if (error) {
+      console.error('createPost: Supabase error details:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        statusCode: error.statusCode,
+        fullError: JSON.stringify(error, null, 2)
+      });
+      throw new Error(`Supabase insert failed: ${error.message} (code: ${error.code})`);
+    }
+
+    if (!data || data.length === 0) {
+      console.error('createPost: No data returned from insert');
+      console.error('createPost: This might indicate a permissions issue or the insert silently failed');
+      throw new Error('Post creation failed: no data returned');
+    }
+
+    console.log('createPost: Success!', { 
+      postId: data[0]?.id,
+      insertedData: data[0],
+      dataLength: data.length 
+    });
+    return data[0];
   } catch (error) {
-    console.error('Error creating post:', error);
-    showError('Failed to create post.');
+    const errorInfo = {
+      message: error.message || 'Unknown error',
+      stack: error.stack,
+      code: error.code,
+      details: error.details,
+      timestamp: new Date().toISOString()
+    };
+    
+    console.error('createPost: Error', errorInfo);
+    console.error('createPost: Full error object:', error);
+    
+    throw error; // Rethrow for caller to handle
   }
 }
 
-// Extract hashtags from content
+// Extract tags
 function extractTags(content) {
   const tagRegex = /#[\w]+/g;
   return content.match(tagRegex) || [];
@@ -200,30 +415,29 @@ function createPostElement(post) {
   let mediaContent = '';
   if (post.media) {
     if (post.media.type === 'image') {
-      mediaContent = `<img src="${post.media.url}" alt="Post image" class="post-media" style="max-width: 100%; border-radius: var(--radius-md); margin-top: var(--spacing-md);">`;
+      mediaContent = `<img src="${post.media.url}" alt="Post image" class="post-media">`;
     } else if (post.media.type === 'link') {
       mediaContent = `<a href="${post.media.url}" target="_blank" class="post-link">${post.media.url}</a>`;
     } else if (post.media.type === 'document') {
       mediaContent = `<div class="post-document"><i class="fas fa-file"></i> ${post.media.name}</div>`;
     } else if (post.media.type === 'poll') {
-      const poll = state.polls.find((p) => p.id === post.media.pollId);
       mediaContent = `
         <div class="post-poll">
-          <h4>${poll.question}</h4>
-          ${poll.options
+          <h4>${post.media.question}</h4>
+          ${post.media.options
             .map(
               (opt, idx) => `
-                <div class="poll-option" data-poll-id="${poll.id}" data-option-id="${idx}">
+                <div class="poll-option" data-poll-id="${post.media.pollId}" data-option-id="${idx}">
                   <span>${opt.text}</span>
                   <span class="poll-votes">${opt.votes} votes</span>
                   <div class="poll-progress" style="width: ${
-                    poll.totalVotes > 0 ? (opt.votes / poll.totalVotes) * 100 : 0
+                    post.media.totalVotes > 0 ? (opt.votes / post.media.totalVotes) * 100 : 0
                   }%"></div>
                 </div>
               `
             )
             .join('')}
-          <div class="poll-total">Total votes: ${poll.totalVotes}</div>
+          <div class="poll-total">Total votes: ${post.media.totalVotes}</div>
         </div>
       `;
     }
@@ -255,7 +469,7 @@ function createPostElement(post) {
     <div class="post-engagement">
       <div class="engagement-stats">
         <span class="stat"><i class="fas fa-thumbs-up"></i> ${post.likes} likes</span>
-        <span class="stat">${post.comments.length} comments</span>
+        <span class="stat">0 comments</span>
         <span class="stat">${post.shares} shares</span>
       </div>
     </div>
@@ -282,11 +496,11 @@ function createPostElement(post) {
   return postElement;
 }
 
-// Format timestamp
+// Format time
 function formatTime(timestamp) {
   const now = new Date();
   const postTime = new Date(timestamp);
-  const diff = (now - postTime) / 1000; // Difference in seconds
+  const diff = (now - postTime) / 1000;
 
   if (diff < 60) return `${Math.floor(diff)} seconds ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)} minutes ago`;
@@ -295,79 +509,98 @@ function formatTime(timestamp) {
 }
 
 // Toggle upvote
-function toggleUpvote(button) {
+async function toggleUpvote(button) {
   try {
     const postElement = button.closest('.post');
     const postId = postElement.id;
-    const post = state.posts.find((p) => p.id === postId);
-    const isActive = button.classList.contains('active');
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (!isActive) {
-      post.likes++;
-      button.classList.add('active');
-      button.querySelector('i').className = 'fas fa-thumbs-up';
-    } else {
-      post.likes--;
+    const { data: existingLike } = await supabase
+      .from('likes')
+      .select('*')
+      .eq('post_id', postId)
+      .eq('user_id', user.id)
+      .single();
+
+    let newLikeCount = 0;
+
+    if (existingLike) {
+      await supabase.from('likes').delete().eq('id', existingLike.id);
       button.classList.remove('active');
       button.querySelector('i').className = 'far fa-thumbs-up';
+    } else {
+      await supabase.from('likes').insert([{ post_id: postId, user_id: user.id }]);
+      button.classList.add('active');
+      button.querySelector('i').className = 'fas fa-thumbs-up';
     }
 
-    // Update UI
+    const { count } = await supabase
+      .from('likes')
+      .select('*', { count: 'exact', head: true })
+      .eq('post_id', postId);
+
+    newLikeCount = count;
+
     const stat = postElement.querySelector('.engagement-stats .stat');
-    stat.innerHTML = `<i class="fas fa-thumbs-up"></i> ${post.likes} likes`;
+    stat.innerHTML = `<i class="fas fa-thumbs-up"></i> ${newLikeCount} likes`;
   } catch (error) {
-    console.error('Error toggling upvote:', error);
+    console.error('Error toggling like:', error);
     showError('Failed to update like.');
   }
 }
 
-// Toggle comments section
-function toggleComments(button) {
+// Toggle comments
+async function toggleComments(button) {
   try {
     const postElement = button.closest('.post');
-    let commentsSection = postElement.querySelector('.comments-section');
+    const postId = postElement.id;
+    let commentSection = postElement.querySelector('.comment-section');
 
-    if (!commentsSection) {
-      commentsSection = document.createElement('div');
-      commentsSection.className = 'comments-section';
-      commentsSection.style.marginTop = 'var(--spacing-lg)';
-      commentsSection.style.borderTop = '1px solid rgba(255, 255, 255, 0.1)';
-      commentsSection.style.paddingTop = 'var(--spacing-lg)';
-      postElement.appendChild(commentsSection);
-
-      const commentInput = document.createElement('div');
-      commentInput.className = 'comment-input';
-      commentInput.innerHTML = `
-        <textarea class="comment-textarea" placeholder="Write a comment..." aria-label="Write a comment"></textarea>
-        <button class="submit-comment" onclick="submitComment(this)">Post</button>
-      `;
-      commentsSection.appendChild(commentInput);
-
-      // Render existing comments
-      const postId = postElement.id;
-      const post = state.posts.find((p) => p.id === postId);
-      post.comments.forEach((comment) => {
-        const commentElement = document.createElement('div');
-        commentElement.className = 'comment';
-        commentElement.innerHTML = `
-          <div class="comment-author">${comment.author}</div>
-          <div class="comment-content">${comment.content}</div>
-          <div class="comment-time">${formatTime(comment.timestamp)}</div>
-        `;
-        commentsSection.insertBefore(commentElement, commentInput);
-      });
+    if (commentSection) {
+      commentSection.classList.toggle('hidden');
+      return;
     }
 
-    commentsSection.style.display = commentsSection.style.display === 'none' ? 'block' : 'none';
-    state.isCommenting = commentsSection.style.display === 'block';
+    commentSection = document.createElement('div');
+    commentSection.className = 'comment-section';
+    commentSection.innerHTML = `
+      <div class="comments-list"></div>
+      <div class="comment-input">
+        <textarea class="comment-textarea" placeholder="Write a comment..."></textarea>
+        <button class="submit-comment">Post</button>
+      </div>
+    `;
+    postElement.appendChild(commentSection);
+
+    const { data: comments, error } = await supabase
+      .from('comments')
+      .select('*')
+      .eq('post_id', postId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+
+    const commentsList = commentSection.querySelector('.comments-list');
+    comments.forEach((comment) => {
+      const commentItem = document.createElement('div');
+      commentItem.className = 'comment-item';
+      commentItem.innerHTML = `
+        <div class="comment-author">${comment.author}</div>
+        <p>${comment.content}</p>
+        <span class="comment-time">${formatTime(comment.created_at)}</span>
+      `;
+      commentsList.appendChild(commentItem);
+    });
+
+    commentSection.querySelector('.submit-comment').addEventListener('click', () => submitComment(commentSection.querySelector('.submit-comment')));
   } catch (error) {
     console.error('Error toggling comments:', error);
-    showError('Failed to toggle comments.');
+    showError('Failed to load comments.');
   }
 }
 
-// Submit a comment
-function submitComment(button) {
+// Submit comment
+async function submitComment(button) {
   try {
     const postElement = button.closest('.post');
     const postId = postElement.id;
@@ -379,29 +612,20 @@ function submitComment(button) {
       return;
     }
 
-    const post = state.posts.find((p) => p.id === postId);
-    post.comments.push({
-      id: `comment-${Date.now()}`,
-      author: $('#sidebarName').textContent,
+    const { data: { user } } = await supabase.auth.getUser();
+    const comment = {
+      post_id: postId,
+      user_id: user.id,
+      author: user.raw_user_meta_data?.full_name || user.email,
       content,
-      timestamp: new Date().toISOString(),
-    });
+    };
 
-    // Update comments UI
-    const commentsSection = postElement.querySelector('.comments-section');
-    const commentElement = document.createElement('div');
-    commentElement.className = 'comment';
-    commentElement.innerHTML = `
-      <div class="comment-author">${post.comments[post.comments.length - 1].author}</div>
-      <div class="comment-content">${content}</div>
-      <div class="comment-time">${formatTime(new Date().toISOString())}</div>
-    `;
-    commentsSection.insertBefore(commentElement, commentsSection.querySelector('.comment-input'));
+    const { error } = await supabase.from('comments').insert([comment]);
+    if (error) throw error;
+
     textarea.value = '';
-
-    // Update comment count
-    const stat = postElement.querySelectorAll('.engagement-stats .stat')[1];
-    stat.textContent = `${post.comments.length} comments`;
+    showSuccess('Comment posted!');
+    await toggleComments(postElement.querySelector('.action-btn i.fa-comment').parentElement);
   } catch (error) {
     console.error('Error submitting comment:', error);
     showError('Failed to post comment.');
@@ -438,7 +662,7 @@ function toggleBookmark(event) {
   }
 }
 
-// Handle media actions
+// Handle media action
 function handleMediaAction(event) {
   const action = event.currentTarget.querySelector('span').textContent.toLowerCase();
   switch (action) {
@@ -454,13 +678,11 @@ function handleMediaAction(event) {
     case 'poll':
       createPoll();
       break;
-    default:
-      console.warn(`Unknown media action: ${action}`);
   }
 }
 
 // Add image
-function addImage() {
+async function addImage() {
   try {
     const input = document.createElement('input');
     input.type = 'file';
@@ -468,7 +690,7 @@ function addImage() {
     input.style.display = 'none';
     document.body.appendChild(input);
 
-    input.addEventListener('change', (event) => {
+    input.addEventListener('change', async (event) => {
       const file = event.target.files[0];
       if (!file) {
         showError('No image selected.');
@@ -480,29 +702,30 @@ function addImage() {
         return;
       }
 
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+      if (file.size > 5 * 1024 * 1024) {
         showError('Image size exceeds 5MB.');
         return;
       }
 
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        state.attachedMedia = { type: 'image', url: e.target.result };
-        const preview = $('.composer-media-preview') || document.createElement('div');
-        preview.className = 'composer-media-preview';
-        preview.style.marginTop = 'var(--spacing-md)';
-        preview.innerHTML = `<img src="${e.target.result}" alt="Image preview" style="max-width: 100%; border-radius: var(--radius-md);">`;
-        $('.post-composer').insertBefore(preview, $('.composer-actions'));
-        showSuccess('Image attached successfully!');
-      };
-      reader.readAsDataURL(file);
+      const { data: { user } } = await supabase.auth.getUser();
+      const filePath = `media/${user.id}/${Date.now()}_${file.name}`;
+      const { error: uploadError } = await supabase.storage.from('media').upload(filePath, file);
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage.from('media').getPublicUrl(filePath);
+      state.attachedMedia = { type: 'image', url: publicUrl };
+      const preview = $('.composer-media-preview') || document.createElement('div');
+      preview.className = 'composer-media-preview';
+      preview.innerHTML = `<img src="${publicUrl}" alt="Image preview">`;
+      $('.post-composer').insertBefore(preview, $('.composer-actions'));
+      showSuccess('Image uploaded successfully!');
     });
 
     input.click();
     document.body.removeChild(input);
   } catch (error) {
-    console.error('Error adding image:', error);
-    showError('Failed to attach image.');
+    console.error('Error uploading image:', error);
+    showError('Failed to upload image.');
   }
 }
 
@@ -524,7 +747,6 @@ function addLink() {
     state.attachedMedia = { type: 'link', url: url.startsWith('http') ? url : `https://${url}` };
     const preview = $('.composer-media-preview') || document.createElement('div');
     preview.className = 'composer-media-preview';
-    preview.style.marginTop = 'var(--spacing-md)';
     preview.innerHTML = `<a href="${state.attachedMedia.url}" target="_blank" class="post-link">${state.attachedMedia.url}</a>`;
     $('.post-composer').insertBefore(preview, $('.composer-actions'));
     showSuccess('Link attached successfully!');
@@ -535,7 +757,7 @@ function addLink() {
 }
 
 // Add document
-function addDocument() {
+async function addDocument() {
   try {
     const input = document.createElement('input');
     input.type = 'file';
@@ -543,7 +765,7 @@ function addDocument() {
     input.style.display = 'none';
     document.body.appendChild(input);
 
-    input.addEventListener('change', (event) => {
+    input.addEventListener('change', async (event) => {
       const file = event.target.files[0];
       if (!file) {
         showError('No document selected.');
@@ -555,60 +777,53 @@ function addDocument() {
         return;
       }
 
-      if (file.size > 10 * 1024 * 1024) { // 10MB limit
+      if (file.size > 10 * 1024 * 1024) {
         showError('Document size exceeds 10MB.');
         return;
       }
 
-      state.attachedMedia = { type: 'document', name: file.name, url: URL.createObjectURL(file) };
+      const { data: { user } } = await supabase.auth.getUser();
+      const filePath = `media/${user.id}/${Date.now()}_${file.name}`;
+      const { error: uploadError } = await supabase.storage.from('media').upload(filePath, file);
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage.from('media').getPublicUrl(filePath);
+      state.attachedMedia = { type: 'document', name: file.name, url: publicUrl };
       const preview = $('.composer-media-preview') || document.createElement('div');
       preview.className = 'composer-media-preview';
-      preview.style.marginTop = 'var(--spacing-md)';
       preview.innerHTML = `<div class="post-document"><i class="fas fa-file"></i> ${file.name}</div>`;
       $('.post-composer').insertBefore(preview, $('.composer-actions'));
-      showSuccess('Document attached successfully!');
+      showSuccess('Document uploaded successfully!');
     });
 
     input.click();
     document.body.removeChild(input);
   } catch (error) {
-    console.error('Error adding document:', error);
-    showError('Failed to attach document.');
+    console.error('Error uploading document:', error);
+    showError('Failed to upload document.');
   }
 }
 
 // Create poll
-function createPoll() {
+async function createPoll() {
   try {
     const modal = document.createElement('div');
     modal.className = 'poll-modal';
-    modal.style.position = 'fixed';
-    modal.style.top = '0';
-    modal.style.left = '0';
-    modal.style.width = '100%';
-    modal.style.height = '100%';
-    modal.style.background = 'rgba(0, 0, 0, 0.7)';
-    modal.style.display = 'flex';
-    modal.style.alignItems = 'center';
-    modal.style.justifyContent = 'center';
-    modal.style.zIndex = '1000';
-
     modal.innerHTML = `
-      <div class="poll-form" style="background: var(--bg-glass); padding: var(--spacing-xl); border-radius: var(--radius-xl); max-width: 500px; width: 90%;">
+      <div class="poll-form">
         <h3>Create a Poll</h3>
-        <input type="text" id="pollQuestion" placeholder="Enter your question" style="width: 100%; padding: var(--spacing-md); margin-bottom: var(--spacing-md); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: var(--radius-md); background: transparent; color: var(--text-primary);">
+        <input type="text" id="pollQuestion" placeholder="Enter your question">
         <div id="pollOptions">
-          <input type="text" class="poll-option-input" placeholder="Option 1" style="width: 100%; padding: var(--spacing-md); margin-bottom: var(--spacing-md); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: var(--radius-md); background: transparent; color: var(--text-primary);">
-          <input type="text" class="poll-option-input" placeholder="Option 2" style="width: 100%; padding: var(--spacing-md); margin-bottom: var(--spacing-md); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: var(--radius-md); background: transparent; color: var(--text-primary);">
+          <input type="text" class="poll-option-input" placeholder="Option 1">
+          <input type="text" class="poll-option-input" placeholder="Option 2">
         </div>
-        <button class="add-option" style="background: transparent; border: none; color: var(--text-accent); margin-bottom: var(--spacing-md);">+ Add Option</button>
-        <div style="display: flex; gap: var(--spacing-md);">
-          <button class="submit-poll" style="flex: 1; padding: var(--spacing-md); background: var(--primary-gradient); color: white; border: none; border-radius: var(--radius-md); cursor: pointer;">Create Poll</button>
-          <button class="cancel-poll" style="flex: 1; padding: var(--spacing-md); background: transparent; border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-secondary); border-radius: var(--radius-md); cursor: pointer;">Cancel</button>
+        <button class="add-option">+ Add Option</button>
+        <div class="poll-actions">
+          <button class="submit-poll">Create Poll</button>
+          <button class="cancel-poll">Cancel</button>
         </div>
       </div>
     `;
-
     document.body.appendChild(modal);
 
     modal.querySelector('.add-option').addEventListener('click', () => {
@@ -616,7 +831,6 @@ function createPoll() {
       optionInput.type = 'text';
       optionInput.className = 'poll-option-input';
       optionInput.placeholder = `Option ${modal.querySelectorAll('.poll-option-input').length + 1}`;
-      optionInput.style.cssText = 'width: 100%; padding: var(--spacing-md); margin-bottom: var(--spacing-md); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: var(--radius-md); background: transparent; color: var(--text-primary);';
       modal.querySelector('#pollOptions').appendChild(optionInput);
     });
 
@@ -631,19 +845,16 @@ function createPoll() {
         return;
       }
 
-      const poll = {
-        id: `poll-${Date.now()}`,
+      state.attachedMedia = {
+        type: 'poll',
         question,
         options: options.map((text) => ({ text, votes: 0 })),
         totalVotes: 0,
       };
 
-      state.polls.push(poll);
-      state.attachedMedia = { type: 'poll', pollId: poll.id };
       const preview = $('.composer-media-preview') || document.createElement('div');
       preview.className = 'composer-media-preview';
-      preview.style.marginTop = 'var(--spacing-md)';
-      preview.innerHTML = `<div class="poll-preview"><h4>${poll.question}</h4>${poll.options.map((opt) => `<p>${opt.text}</p>`).join('')}</div>`;
+      preview.innerHTML = `<div class="poll-preview"><h4>${question}</h4>${options.map((opt) => `<p>${opt}</p>`).join('')}</div>`;
       $('.post-composer').insertBefore(preview, $('.composer-actions'));
       document.body.removeChild(modal);
       showSuccess('Poll created successfully!');
@@ -658,18 +869,31 @@ function createPoll() {
   }
 }
 
-// Vote in a poll
-function votePoll(event) {
+// Vote poll
+async function votePoll(event) {
   try {
     const optionElement = event.currentTarget;
     const pollId = optionElement.dataset.pollId;
     const optionId = parseInt(optionElement.dataset.optionId);
-    const poll = state.polls.find((p) => p.id === pollId);
+
+    const { data: poll, error: fetchError } = await supabase
+      .from('polls')
+      .select('*')
+      .eq('id', pollId)
+      .single();
+
+    if (fetchError) throw fetchError;
 
     poll.options[optionId].votes++;
-    poll.totalVotes++;
+    poll.total_votes++;
 
-    // Update UI
+    const { error: updateError } = await supabase
+      .from('polls')
+      .update({ options: poll.options, total_votes: poll.total_votes })
+      .eq('id', pollId);
+
+    if (updateError) throw updateError;
+
     const postElement = optionElement.closest('.post');
     const pollContainer = postElement.querySelector('.post-poll');
     pollContainer.innerHTML = `
@@ -681,15 +905,14 @@ function votePoll(event) {
               <span>${opt.text}</span>
               <span class="poll-votes">${opt.votes} votes</span>
               <div class="poll-progress" style="width: ${
-                poll.totalVotes > 0 ? (opt.votes / poll.totalVotes) * 100 : 0
+                poll.total_votes > 0 ? (opt.votes / poll.total_votes) * 100 : 0
               }%"></div>
             </div>
           `
         )
         .join('')}
-      <div class="poll-total">Total votes: ${poll.totalVotes}</div>
+      <div class="poll-total">Total votes: ${poll.total_votes}</div>
     `;
-    // Re-attach listeners
     $$('.poll-option', postElement).forEach((opt) => {
       opt.addEventListener('click', votePoll);
     });
@@ -705,36 +928,24 @@ function showNotifications() {
   try {
     const modal = document.createElement('div');
     modal.className = 'notification-modal';
-    modal.style.position = 'fixed';
-    modal.style.top = '0';
-    modal.style.left = '0';
-    modal.style.width = '100%';
-    modal.style.height = '100%';
-    modal.style.background = 'rgba(0, 0, 0, 0.7)';
-    modal.style.display = 'flex';
-    modal.style.alignItems = 'center';
-    modal.style.justifyContent = 'center';
-    modal.style.zIndex = '1000';
-
     modal.innerHTML = `
-      <div class="notification-list" style="background: var(--bg-glass); padding: var(--spacing-xl); border-radius: var(--radius-xl); max-width: 500px; width: 90%;">
+      <div class="notification-list">
         <h3>Notifications</h3>
         <div id="notificationItems">
           ${state.notifications
             .map(
               (notif) => `
-                <div class="notification-item" style="padding: var(--spacing-md); border-bottom: 1px solid rgba(255, 255, 255, 0.1); ${notif.read ? '' : 'background: var(--bg-glass-hover);'}">
+                <div class="notification-item" style="${notif.read ? '' : 'background: var(--bg-glass-hover);'}">
                   <p>${notif.message}</p>
-                  <span style="font-size: 0.75rem; color: var(--text-muted);">${formatTime(notif.time)}</span>
+                  <span>${formatTime(notif.time)}</span>
                 </div>
               `
             )
             .join('')}
         </div>
-        <button class="close-notifications" style="width: 100%; padding: var(--spacing-md); background: var(--primary-gradient); color: white; border: none; border-radius: var(--radius-md); margin-top: var(--spacing-md); cursor: pointer;">Close</button>
+        <button class="close-notifications">Close</button>
       </div>
     `;
-
     document.body.appendChild(modal);
     state.notifications.forEach((notif) => (notif.read = true));
     $('.notification-badge').textContent = '0';
@@ -753,41 +964,29 @@ function showMessages() {
   try {
     const modal = document.createElement('div');
     modal.className = 'messages-modal';
-    modal.style.position = 'fixed';
-    modal.style.top = '0';
-    modal.style.left = '0';
-    modal.style.width = '100%';
-    modal.style.height = '100%';
-    modal.style.background = 'rgba(0, 0, 0, 0.7)';
-    modal.style.display = 'flex';
-    modal.style.alignItems = 'center';
-    modal.style.justifyContent = 'center';
-    modal.style.zIndex = '1000';
-
     modal.innerHTML = `
-      <div class="messages-list" style="background: var(--bg-glass); padding: var(--spacing-xl); border-radius: var(--radius-xl); max-width: 500px; width: 90%;">
+      <div class="messages-list">
         <h3>Messages</h3>
         <div id="messageItems">
           ${state.messages
             .map(
               (msg) => `
-                <div class="message-item" style="padding: var(--spacing-md); border-bottom: 1px solid rgba(255, 255, 255, 0.1);">
-                  <div style="font-weight: 600; margin-bottom: var(--spacing-xs);">${msg.sender}</div>
+                <div class="message-item">
+                  <div class="message-sender">${msg.sender}</div>
                   <p>${msg.content}</p>
-                  <span style="font-size: 0.75rem; color: var(--text-muted);">${formatTime(msg.time)}</span>
+                  <span>${formatTime(msg.time)}</span>
                 </div>
               `
             )
             .join('')}
         </div>
-        <div class="message-input" style="margin-top: var(--spacing-md); display: flex; gap: var(--spacing-md);">
-          <textarea class="message-textarea" placeholder="Type a message..." style="flex: 1; padding: var(--spacing-md); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: var(--radius-md); background: transparent; color: var(--text-primary); resize: none;"></textarea>
-          <button class="send-message" style="padding: var(--spacing-md); background: var(--primary-gradient); color: white; border: none; border-radius: var(--radius-md); cursor: pointer;">Send</button>
+        <div class="message-input">
+          <textarea class="message-textarea" placeholder="Type a message..."></textarea>
+          <button class="send-message">Send</button>
         </div>
-        <button class="close-messages" style="width: 100%; padding: var(--spacing-md); background: transparent; border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-secondary); border-radius: var(--radius-md); margin-top: var(--spacing-md); cursor: pointer;">Close</button>
+        <button class="close-messages">Close</button>
       </div>
     `;
-
     document.body.appendChild(modal);
 
     modal.querySelector('.send-message').addEventListener('click', () => {
@@ -805,11 +1004,10 @@ function showMessages() {
       });
       const messageItem = document.createElement('div');
       messageItem.className = 'message-item';
-      messageItem.style.cssText = 'padding: var(--spacing-md); border-bottom: 1px solid rgba(255, 255, 255, 0.1);';
       messageItem.innerHTML = `
-        <div style="font-weight: 600; margin-bottom: var(--spacing-xs);">${$('#sidebarName').textContent}</div>
+        <div class="message-sender">${$('#sidebarName').textContent}</div>
         <p>${content}</p>
-        <span style="font-size: 0.75rem; color: var(--text-muted);">${formatTime(new Date().toISOString())}</span>
+        <span>${formatTime(new Date().toISOString())}</span>
       `;
       modal.querySelector('#messageItems').appendChild(messageItem);
       textarea.value = '';
@@ -825,78 +1023,229 @@ function showMessages() {
   }
 }
 
-// Load profile section (placeholder)
-function loadProfile() {
-  $('#contentArea').innerHTML = '<div class="section active" id="profile-section"><h2>Profile Section</h2><p>Your profile details will be displayed here.</p></div>';
+// Load profile
+async function loadProfile() {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    const name = user.raw_user_meta_data?.full_name || user.email;
+    const title = user.raw_user_meta_data?.title || 'Professional';
+    const avatar = user.raw_user_meta_data?.avatar_url || generateAvatar(name);
+    const bio = user.raw_user_meta_data?.bio || 'No bio provided.';
+
+    $('#contentArea').innerHTML = `
+      <div class="section active" id="profile-section">
+        <h2>${name}'s Profile</h2>
+        <img src="${avatar}" alt="Profile" class="profile-image">
+        <p><strong>Title:</strong> ${title}</p>
+        <p><strong>Email:</strong> ${user.email}</p>
+        <p><strong>Bio:</strong> ${bio}</p>
+        <button class="edit-profile">Edit Profile</button>
+      </div>
+    `;
+
+    $('.edit-profile').addEventListener('click', () => {
+      const modal = document.createElement('div');
+      modal.className = 'profile-modal';
+      modal.innerHTML = `
+        <div class="profile-form">
+          <h3>Edit Profile</h3>
+          <input type="text" id="editFullName" value="${name}" placeholder="Full Name">
+          <input type="text" id="editTitle" value="${title}" placeholder="Title">
+          <textarea id="editBio" placeholder="Bio">${bio}</textarea>
+          <input type="file" id="editAvatar" accept="image/*">
+          <div class="profile-actions">
+            <button class="save-profile">Save</button>
+            <button class="cancel-profile">Cancel</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      modal.querySelector('.save-profile').addEventListener('click', async () => {
+        const fullName = DOMPurify.sanitize($('#editFullName').value.trim());
+        const title = DOMPurify.sanitize($('#editTitle').value.trim());
+        const bio = DOMPurify.sanitize($('#editBio').value.trim());
+        const avatarFile = $('#editAvatar').files[0];
+
+        let avatarUrl = user.raw_user_meta_data?.avatar_url || generateAvatar(fullName);
+        if (avatarFile) {
+          const filePath = `avatars/${user.id}/${Date.now()}_${avatarFile.name}`;
+          const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, avatarFile);
+          if (uploadError) throw uploadError;
+          const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(filePath);
+          avatarUrl = publicUrl;
+        }
+
+        const { error } = await supabase.auth.updateUser({
+          data: {
+            full_name: fullName,
+            title,
+            bio,
+            avatar_url: avatarUrl,
+          },
+        });
+        if (error) throw error;
+
+        document.body.removeChild(modal);
+        showSuccess('Profile updated!');
+        fetchUserProfile();
+        loadProfile();
+      });
+
+      modal.querySelector('.cancel-profile').addEventListener('click', () => {
+        document.body.removeChild(modal);
+      });
+    });
+  } catch (error) {
+    console.error('Error loading profile:', error);
+    showError('Failed to load profile.');
+  }
 }
 
-// Load Career AI section (placeholder)
-function loadCareerAI() {
-  $('#contentArea').innerHTML = '<div class="section active" id="career-section"><h2>Career AI</h2><p>Career AI recommendations will be displayed here.</p></div>';
+// Load Career AI
+async function loadCareerAI() {
+  try {
+    const jobs = [
+      { title: 'Senior Frontend Developer', company: 'Google', match: '95%', salary: '$120k - $180k' },
+      { title: 'Full Stack Engineer', company: 'Microsoft', match: '88%', salary: '$110k - $160k' },
+    ];
+
+    $('#contentArea').innerHTML = `
+      <div class="section active" id="career-section">
+        <h2>Career AI Recommendations</h2>
+        <div class="job-recommendations">
+          ${jobs
+            .map(
+              (job) => `
+                <div class="job-item">
+                  <h4>${job.title}</h4>
+                  <p>${job.company}</p>
+                  <p>${job.match} match | ${job.salary}</p>
+                </div>
+              `
+            )
+            .join('')}u
+        </div>
+      </div>
+    `;
+  } catch (error) {
+    console.error('Error loading Career AI:', error);
+    showError('Failed to load Career AI.');
+  }
 }
 
-// Load CV Parser section (placeholder)
-function loadCVParser() {
-  $('#contentArea').innerHTML = '<div class="section active" id="cv-section"><h2>CV Parser</h2><p>CV parsing tools will be displayed here.</p></div>';
+// Load CV Parser
+async function loadCVParser() {
+  try {
+    $('#contentArea').innerHTML = `
+      <div class="section active" id="cv-section">
+        <h2>CV Parser</h2>
+        <input type="file" id="cvUpload" accept=".pdf">
+        <button class="parse-cv">Parse CV</button>
+        <div id="cvOutput"></div>
+      </div>
+    `;
+
+    const pdfjsLib = window['pdfjs-dist/build/pdf'];
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.9.359/pdf.worker.min.js';
+
+    $('.parse-cv').addEventListener('click', async () => {
+      const file = $('#cvUpload').files[0];
+      if (!file) {
+        showError('Please upload a PDF file.');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const pdf = await pdfjsLib.getDocument(e.target.result).promise;
+        let text = '';
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          text += content.items.map((item) => item.str).join(' ') + '\n';
+        }
+
+        const { data: { user } } = await supabase.auth.getUser();
+        const filePath = `cvs/${user.id}/${Date.now()}_${file.name}`;
+        const { error: uploadError } = await supabase.storage.from('cvs').upload(filePath, file);
+        if (uploadError) throw uploadError;
+
+        $('#cvOutput').innerHTML = `<pre>${text}</pre>`;
+        showSuccess('CV parsed successfully!');
+      };
+      reader.readAsArrayBuffer(file);
+    });
+  } catch (error) {
+    console.error('Error loading CV parser:', error);
+    showError('Failed to load CV parser.');
+  }
 }
 
-// Load Communities section (placeholder)
-function loadCommunities() {
-  $('#contentArea').innerHTML = '<div class="section active" id="communities-section"><h2>Communities</h2><p>Your communities will be displayed here.</p></div>';
+// Load Communities
+async function loadCommunities() {
+  try {
+    const { data: communities, error } = await supabase
+      .from('communities')
+      .select('id, name, icon, members');
+    if (error) throw error;
+
+    $('#contentArea').innerHTML = `
+      <div class="section active" id="communities-section">
+        <h2>My Communities</h2>
+        <div class="communities-list">
+          ${communities
+            .map(
+              (community) => `
+                <div class="community-item">
+                  <i class="${community.icon || 'fas fa-users'}"></i>
+                  <h4>${community.name}</h4>
+                  <p>${community.members} members</p>
+                </div>
+              `
+            )
+            .join('')}
+        </div>
+      </div>
+    `;
+  } catch (error) {
+    console.error('Error loading communities:', error);
+    showError('Failed to load communities.');
+  }
 }
 
-// Update post limit display
+// Update post limit
 function updatePostLimit() {
   const content = $('#postContent').value;
-  const remaining = 280 - content.length; // Example character limit
+  const remaining = 280 - content.length;
   $('.post-limit').textContent = `${remaining} characters remaining`;
 }
 
-// Show error message
+// Show error
 function showError(message) {
   const errorDiv = document.createElement('div');
   errorDiv.className = 'error-message';
-  errorDiv.style.position = 'fixed';
-  errorDiv.style.bottom = '20px';
-  errorDiv.style.right = '20px';
-  errorDiv.style.background = 'var(--secondary-gradient)';
-  errorDiv.style.color = 'white';
-  errorDiv.style.padding = 'var(--spacing-md)';
-  errorDiv.style.borderRadius = 'var(--radius-md)';
-  errorDiv.style.boxShadow = 'var(--shadow-md)';
   errorDiv.textContent = message;
   document.body.appendChild(errorDiv);
-
   setTimeout(() => {
     errorDiv.style.opacity = '0';
-    errorDiv.style.transition = 'opacity var(--transition-normal)';
     setTimeout(() => errorDiv.remove(), 300);
   }, 3000);
 }
 
-// Show success message
+// Show success
 function showSuccess(message) {
   const successDiv = document.createElement('div');
   successDiv.className = 'success-message';
-  successDiv.style.position = 'fixed';
-  successDiv.style.bottom = '20px';
-  successDiv.style.right = '20px';
-  successDiv.style.background = 'var(--success-gradient)';
-  successDiv.style.color = 'white';
-  successDiv.style.padding = 'var(--spacing-md)';
-  successDiv.style.borderRadius = 'var(--radius-md)';
-  successDiv.style.boxShadow = 'var(--shadow-md)';
   successDiv.textContent = message;
   document.body.appendChild(successDiv);
-
   setTimeout(() => {
     successDiv.style.opacity = '0';
-    successDiv.style.transition = 'opacity var(--transition-normal)';
     setTimeout(() => successDiv.remove(), 300);
   }, 3000);
 }
 
-// Debounce utility for performance optimization
+// Debounce
 function debounce(func, wait) {
   let timeout;
   return function executedFunction(...args) {
@@ -909,49 +1258,42 @@ function debounce(func, wait) {
   };
 }
 
-// Add debounce to input events
-$('#postContent').addEventListener('input', debounce(updatePostLimit, 200));
+// Toggle user menu
+function toggleUserMenu() {
+  const dropdown = $('#userMenuDropdown');
+  dropdown.classList.toggle('show');
+}
 
-// Smooth scroll for anchor links
-$$('a[href*="#"]').forEach((anchor) => {
-  anchor.addEventListener('click', (e) => {
-    e.preventDefault();
-    const targetId = anchor.getAttribute('href').substring(1);
-    const target = $(`#${targetId}`);
-    if (target) {
-      target.scrollIntoView({ behavior: 'smooth' });
+// Sign out
+async function signOut() {
+  if (confirm('Are you sure you want to sign out?')) {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      localStorage.removeItem('user');
+      sessionStorage.clear();
+      window.location.href = 'joinus.html';
+    } catch (error) {
+      console.error('Error signing out:', error);
+      showError('Failed to sign out.');
+    }
+  }
+}
+
+// Event listeners
+document.addEventListener('DOMContentLoaded', () => {
+  initializeApp();
+  $('#postContent').addEventListener('input', debounce(updatePostLimit, 200));
+  document.addEventListener('click', (event) => {
+    const userMenu = $('.user-menu');
+    const dropdown = $('#userMenuDropdown');
+    if (!userMenu.contains(event.target)) {
+      dropdown.classList.remove('show');
     }
   });
-});
-
-function toggleUserMenu() {
-    const dropdown = document.getElementById('userMenuDropdown');
-    dropdown.classList.toggle('show');
-}
-
-const supabase = window.supabase.createClient(
-      'https://lhcneterxhyctrksvloe.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoY25ldGVyeGh5Y3Rya3N2bG9lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDkwMjEyOTQsImV4cCI6MjA2NDU5NzI5NH0.7V0lgM3YGObRRSWe5YPXxO49KyoMxwFnQMBhmU8uCHE'
-    );
-
-function signOut() {
-    if (confirm('Are you sure you want to sign out?')) {
-  
-        // Clear any stored user data
-        localStorage.removeItem('user');
-        sessionStorage.clear();
-        
-        // Redirect to login page
-        window.location.href = 'joinus.html';
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT') {
+      window.location.href = 'joinus.html';
     }
-}
-
-// Close dropdown when clicking outside
-document.addEventListener('click', function(event) {
-    const userMenu = document.querySelector('.user-menu');
-    const dropdown = document.getElementById('userMenuDropdown');
-    
-    if (!userMenu.contains(event.target)) {
-        dropdown.classList.remove('show');
-    }
+  });
 });

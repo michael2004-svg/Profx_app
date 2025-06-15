@@ -8,7 +8,23 @@
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <link rel="stylesheet" href="../css/joinus.css">
   <style>
-
+    .auth-container { display: block; padding: 20px; }
+    .auth-form { display: block; }
+    .form-group { margin-bottom: 15px; }
+    .form-input { width: 100%; padding: 8px; box-sizing: border-box; }
+    .btn { padding: 10px 20px; margin: 5px; cursor: pointer; }
+    .btn-primary { background: #4f46e5; color: white; border: none; }
+    .btn-secondary { background: #f3f4f6; color: #6b7280; border: 1px solid #d1d5db; }
+    .mode-toggle { margin-top: 10px; }
+    .forgot-password { display: block; margin-top: 5px; font-size: 0.9rem; color: #4f46e5; text-decoration: none; }
+    .forgot-password:hover { text-decoration: underline; }
+    .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
+    .loading-overlay.show { display: flex; justify-content: center; align-items: center; }
+    .status-message { padding: 10px; margin: 10px 0; display: none; }
+    .status-message.show { display: block; }
+    .status-error { background: #fee2e2; color: #dc2626; }
+    .status-success { background: #d1fae5; color: #065f46; }
+    .status-info { background: #dbeafe; color: #1e40af; }
   </style>
 </head>
 <body>
@@ -24,10 +40,9 @@
         <i class="fas fa-database"></i>
       </div>
       <h1 class="welcome-text">Welcome</h1>
-      <p class="subtitle">Sign in to your account</p>
+      <p class="subtitle" id="form-subtitle">Sign in to your account</p>
     </div>
 
-    <!-- Loading Overlay -->
     <div id="loading-overlay" class="loading-overlay">
       <div class="loading-content">
         <div class="spinner"></div>
@@ -35,16 +50,18 @@
       </div>
     </div>
 
-    <!-- Status Message -->
     <div id="status-message" class="status-message"></div>
 
-    <!-- Sign In/Up Form -->
     <div id="auth-form" class="auth-form">
+      <div class="form-group" id="name-group" style="display: none;">
+        <input type="text" id="fullName" class="form-input" placeholder="Full Name" required />
+      </div>
       <div class="form-group">
         <input type="email" id="email" class="form-input" placeholder="Email address" required />
       </div>
       <div class="form-group">
         <input type="password" id="password" class="form-input" placeholder="Password" required />
+        <a href="#" id="forgot-password" class="forgot-password">Forgot Password?</a>
       </div>
       
       <div class="btn-container">
@@ -61,19 +78,7 @@
         <a href="#" id="mode-link" class="mode-link">Create one</a>
       </div>
     </div>
-
-    <!-- Signed In State -->
-    <div id="signed-in-state" class="signed-in-state" style="display: none;">
-      <div class="user-avatar">
-        <i class="fas fa-user"></i>
-      </div>
-      <div class="user-email" id="user-email"></div>
-      <div class="user-status">You are signed in</div>
-      <button id="signOutBtn" class="btn btn-danger">
-        <i class="fas fa-sign-out-alt"></i>  Sign Out
-      </button>
-    </div>
   </div>
-     <script src="../js/joinus.js"></script>
+  <script src="../js/auth.js"></script>
 </body>
 </html>

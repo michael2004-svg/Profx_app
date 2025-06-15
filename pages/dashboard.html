@@ -1,479 +1,196 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CareerConnect - Professional Social Platform</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../css/dashboard.css">
-    <script src="https://cdn.jsdelivr.net/npm/dompurify@2.3.10/dist/purify.min.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CareerConnect Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+  <link rel="stylesheet" href="../css/dashboard.css">
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@2.3.3/dist/purify.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.9.359/pdf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../js/dashboard.js" defer></script>
 </head>
 <body>
-    <div class="container">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-content">
-                <div class="logo">
-                    <i class="fas fa-network-wired"></i>
-                    <span>Profx</span>
-                </div>
-                <nav class="nav-buttons" role="navigation" aria-label="Main navigation">
-                    <button class="nav-btn active" onclick="showSection('feed', this)" aria-label="View Feed" role="tab" aria-selected="true">
-                        <i class="fas fa-home"></i>
-                        <span>Feed</span>
-                    </button>
-                    <button class="nav-btn" onclick="showSection('profile', this)" aria-label="View Profile" role="tab" aria-selected="false">
-                        <i class="fas fa-user"></i>
-                        <span>Profile</span>
-                    </button>
-                    <button class="nav-btn" onclick="showSection('career', this)" aria-label="View Career AI" role="tab" aria-selected="false">
-                        <i class="fas fa-robot"></i>
-                        <span>Career AI</span>
-                    </button>
-                    <button class="nav-btn" onclick="showSection('cv', this)" aria-label="View CV Parser" role="tab" aria-selected="false">
-                        <i class="fas fa-file-alt"></i>
-                        <span>CV Parser</span>
-                    </button>
-                    <button class="nav-btn" onclick="showSection('communities', this)" aria-label="View Communities" role="tab" aria-selected="false">
-                        <i class="fas fa-users"></i>
-                        <span>Communities</span>
-                    </button>
-                </nav>
-                <div class="header-actions">
-                    <button class="notification-btn" aria-label="Notifications">
-                        <i class="fas fa-bell"></i>
-                        <span class="notification-badge">3</span>
-                    </button>
-                    <button class="messages-btn" aria-label="Messages">
-                        <i class="fas fa-envelope"></i>
-                    </button>
-                    <div class="user-menu">
-    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%23667eea'/%3E%3Ctext x='16' y='20' text-anchor='middle' fill='white' font-family='Inter' font-weight='600' font-size='12'%3EJD%3C/text%3E%3C/svg%3E" 
-         alt="Profile" 
-         class="user-avatar" 
-         onclick="toggleUserMenu()">
-    
-    <!-- Dropdown Menu -->
-    <div class="user-menu-dropdown" id="userMenuDropdown">
-        <button class="user-menu-item" onclick="showSection('profile')">
-            <i class="fas fa-user"></i>
-            <span>View Profile</span>
+  <div class="dashboard-container">
+    <!-- Header -->
+    <header class="dashboard-header">
+      <div class="logo">
+        <h1>CareerConnect</h1>
+      </div>
+      <nav class="main-nav">
+        <button class="nav-btn active" onclick="showSection('feed', this)" aria-selected="true" aria-label="View Feed">
+          <i class="fas fa-home"></i> Feed
         </button>
-        <button class="user-menu-item" onclick="showSettings()">
-            <i class="fas fa-cog"></i>
-            <span>Settings</span>
+        <button class="nav-btn" onclick="showSection('profile', this)" aria-selected="false" aria-label="View Profile">
+          <i class="fas fa-user"></i> Profile
         </button>
-        <button class="user-menu-item sign-out" onclick="signOut()">
-            <i class="fas fa-sign-out-alt"></i>
-            <span>Sign Out</span>
+        <button class="nav-btn" onclick="showSection('career', this)" aria-selected="false" aria-label="View Career AI">
+          <i class="fas fa-briefcase"></i> Career AI
         </button>
+        <button class="nav-btn" onclick="showSection('cv', this)" aria-selected="false" aria-label="View CV Parser">
+          <i class="fas fa-file-alt"></i> CV Parser
+        </button>
+        <button class="nav-btn" onclick="showSection('communities', this)" aria-selected="false" aria-label="View Communities">
+          <i class="fas fa-users"></i> Communities
+        </button>
+      </nav>
+      <div class="header-actions">
+        <button class="action-btn" onclick="showNotifications()" aria-label="Notifications">
+          <i class="fas fa-bell"></i>
+          <span class="notification-badge">0</span>
+        </button>
+        <button class="action-btn" onclick="showMessages()" aria-label="Messages">
+          <i class="fas fa-envelope"></i>
+        </button>
+        <div class="user-menu">
+          <img src="https://ui-avatars.com/api/?name=User&background=667eea&color=fff&size=32&font-size=0.4" alt="Profile" class="user-avatar" onclick="toggleUserMenu()">
+          <div class="user-menu-dropdown" id="userMenuDropdown">
+            <a href="#" onclick="showSection('profile', null)">Profile</a>
+            <a href="#" onclick="signOut()">Sign Out</a>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="dashboard-content">
+      <!-- Left Sidebar -->
+      <aside class="sidebar">
+        <div class="profile-card modern-card">
+          <div class="profile-avatar" id="sidebarAvatar">
+            <img src="https://ui-avatars.com/api/?name=User&background=667eea&color=fff&size=80&font-size=0.6" alt="Profile">
+          </div>
+          <h3 class="username" id="sidebarName">Loading...</h3>
+          <p class="user-title" id="sidebarTitle">Loading...</p>
+          <button class="action-btn">View Profile</button>
+        </div>
+        <div class="quick-actions modern-card">
+          <h4>Quick Actions</h4>
+          <ul>
+            <li><a href="#"><i class="fas fa-search"></i> Job Search</a></li>
+            <li><a href="#"><i class="fas fa-calendar"></i> Schedule</a></li>
+            <li><a href="#"><i class="fas fa-chart-bar"></i> Analytics</a></li>
+            <li><a href="#"><i class="fas fa-book"></i> Learning</a></li>
+          </ul>
+        </div>
+        <div class="communities-list modern-card">
+          <h4>My Communities</h4>
+          <ul>
+            <li><a href="#"><i class="fab fa-js"></i> JavaScript Developers <span>1.2k</span></a></li>
+            <li><a href="#"><i class="fab fa-react"></i> React Enthusiasts <span>850</span></a></li>
+            <li><a href="#"><i class="fas fa-robot"></i> AI & Machine Learning <span>2.5k</span></a></li>
+          </ul>
+        </div>
+      </aside>
+
+      <!-- Main Content Area -->
+      <main class="main-content">
+        <div class="content-area" id="contentArea">
+          <section class="section active" id="feed-section">
+            <!-- Post Composer -->
+            <div class="post-composer modern-card">
+  <form id="postForm" onsubmit="submitPost(event)">
+    <div class="composer-header">
+      <img src="https://ui-avatars.com/api/?name=User&background=667eea&color=fff&size=40&font-size=0.4" alt="Your avatar" class="composer-avatar">
+      <textarea id="postContent" placeholder="Share your thoughts or achievements..." aria-label="Write a post" rows="3" required></textarea>
     </div>
+    <div class="composer-media-preview"></div>
+    <div class="composer-actions">
+      <button class="media-btn" type="button" onclick="handleMediaAction(event)">
+        <i class="fas fa-image"></i> <span>Photo</span>
+      </button>
+      <button class="media-btn" type="button" onclick="handleMediaAction(event)">
+        <i class="fas fa-link"></i> <span>Link</span>
+      </button>
+      <button class="media-btn" type="button" onclick="handleMediaAction(event)">
+        <i class="fas fa-file"></i> <span>Document</span>
+      </button>
+      <button class="media-btn" type="button" onclick="handleMediaAction(event)">
+        <i class="fas fa-poll"></i> <span>Poll</span>
+      </button>
+      <button class="post-btn" type="submit">Post</button>
+    </div>
+    <div class="post-limit">
+      <span id="postsLeft">10</span> posts remaining today
+    </div>
+    <div id="errorMessage" style="color: red;"></div>
+  </form>
 </div>
-                </div>
+            <!-- Feed Container -->
+            <div id="feed-container"></div>
+          </section>
+          <section class="section" id="profile-section"></section>
+          <section class="section" id="career-section"></section>
+          <section class="section" id="cv-section"></section>
+          <section class="section" id="communities-section"></section>
+        </div>
+      </main>
+
+      <!-- Right Panel -->
+      <aside class="right-panel">
+        <div class="job-recommendations modern-card">
+          <h4>Job Recommendations</h4>
+          <ul>
+            <li>
+              <h5>Senior Frontend Developer</h5>
+              <p>Google • 95% match • $120k - $180k</p>
+            </li>
+            <li>
+              <h5>Full Stack Engineer</h5>
+              <p>Microsoft • 88% match • $110k - $160k</p>
+            </li>
+            <li>
+              <h5>Data Scientist</h5>
+              <p>Amazon • 85% match • $130k - $200k</p>
+            </li>
+          </ul>
+          <a href="#" class="view-more">View More</a>
+        </div>
+        <div class="growth-metrics modern-card">
+          <h4>Your Growth</h4>
+          <div class="metric">
+            <p>Profile Views</p>
+            <span class="metric-value">128</span>
+            <div class="metric-chart">
+              <div class="bar" style="width: 60%;"></div>
+              <div class="bar" style="width: 80%;"></div>
+              <div class="bar" style="width: 45%;"></div>
+              <div class="bar" style="width: 90%;"></div>
+              <div class="bar" style="width: 100%;"></div>
             </div>
-        </header>
-
-        <!-- Main Content -->
-        <main class="main-content">
-            <!-- Left Sidebar -->
-            <aside class="sidebar">
-                <div class="profile-card">
-                    <div class="profile-pic" id="sidebarAvatar">
-                        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Ccircle cx='40' cy='40' r='40' fill='url(%23grad1)'/%3E%3Cdefs%3E%3ClinearGradient id='grad1' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23667eea'/%3E%3Cstop offset='100%25' style='stop-color:%23764ba2'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ctext x='40' y='48' text-anchor='middle' fill='white' font-family='Inter' font-weight='600' font-size='24'%3EJD%3C/text%3E%3C/svg%3E" alt="Profile">
-                    </div>
-                    <div class="profile-info">
-                        <h3 class="username" id="sidebarName">John Doe</h3>
-                        <p class="user-title" id="sidebarTitle">Senior Software Engineer</p>
-                        <div class="user-stats">
-                            <div class="stat">
-                                <span class="stat-number">1.2k</span>
-                                <span class="stat-label">Connections</span>
-                            </div>
-                            <div class="stat">
-                                <span class="stat-number">85</span>
-                                <span class="stat-label">Skill Score</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="quick-actions">
-                    <h4>Quick Actions</h4>
-                    <div class="action-grid">
-                        <button class="action-card">
-                            <i class="fas fa-search"></i>
-                            <span>Job Search</span>
-                        </button>
-                        <button class="action-card">
-                            <i class="fas fa-calendar"></i>
-                            <span>Schedule</span>
-                        </button>
-                        <button class="action-card">
-                            <i class="fas fa-chart-line"></i>
-                            <span>Analytics</span>
-                        </button>
-                        <button class="action-card">
-                            <i class="fas fa-graduation-cap"></i>
-                            <span>Learning</span>
-                        </button>
-                    </div>
-                </div>
-
-                <div class="communities-list" id="sidebarCommunities">
-                    <h4>My Communities</h4>
-                    <div class="community-item">
-                        <div class="community-avatar">
-                            <i class="fab fa-js"></i>
-                        </div>
-                        <div class="community-info">
-                            <h5>JavaScript Developers</h5>
-                            <p class="community-members">2.5k members</p>
-                        </div>
-                        <div class="community-status active"></div>
-                    </div>
-                    <div class="community-item">
-                        <div class="community-avatar">
-                            <i class="fab fa-react"></i>
-                        </div>
-                        <div class="community-info">
-                            <h5>React Enthusiasts</h5>
-                            <p class="community-members">1.8k members</p>
-                        </div>
-                        <div class="community-status"></div>
-                    </div>
-                    <div class="community-item">
-                        <div class="community-avatar">
-                            <i class="fas fa-brain"></i>
-                        </div>
-                        <div class="community-info">
-                            <h5>AI & Machine Learning</h5>
-                            <p class="community-members">3.2k members</p>
-                        </div>
-                        <div class="community-status active"></div>
-                    </div>
-                </div>
-            </aside>
-
-            <!-- Main Content Area -->
-            <section class="content-area" id="contentArea">
-                <!-- Feed Section (default) -->
-                <div id="feed-section" class="section">
-                    <!-- Post Creator -->
-                    <div class="post-composer">
-                        <div class="composer-header">
-                            <div class="composer-media-preview"></div>
-                            <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'%3E%3Ccircle cx='20' cy='20' r='20' fill='url(%23grad2)'/%3E%3Cdefs%3E%3ClinearGradient id='grad2' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23667eea'/%3E%3Cstop offset='100%25' style='stop-color:%23764ba2'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ctext x='20' y='24' text-anchor='middle' fill='white' font-family='Inter' font-weight='600' font-size='12'%3EJD%3C/text%3E%3C/svg%3E" alt="Your avatar" class="composer-avatar">
-                            <textarea class="post-input" id="postContent" aria-label="Create a new post" placeholder="Share your thoughts, achievements, or insights..."></textarea>
-                        </div>
-                        <div class="composer-actions">
-                            <div class="media-options">
-                                <button class="media-btn" onclick="addImage()" title="Add Image">
-                                    <i class="fas fa-image"></i>
-                                    <span>Photo</span>
-                                </button>
-                                <button class="media-btn" onclick="addLink()" title="Add Link">
-                                    <i class="fas fa-link"></i>
-                                    <span>Link</span>
-                                </button>
-                                <button class="media-btn" title="Add Document">
-                                    <i class="fas fa-file"></i>
-                                    <span>Document</span>
-                                </button>
-                                <button class="media-btn" title="Create Poll">
-                                    <i class="fas fa-poll"></i>
-                                    <span>Poll</span>
-                                </button>
-                            </div>
-                            <div class="post-controls">
-                                <div class="post-limit">
-                                    <span id="postsLeft">1</span> post remaining today
-                                </div>
-                                <button class="submit-post" onclick="createPost()">
-                                    <i class="fas fa-paper-plane"></i>
-                                    <span>Share</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Feed Posts -->
-                    <div id="feed-container" class="feed-posts">
-                        <!-- Sample Post 1 -->
-                        <article class="post modern-card" id="sample1">
-                            <div class="post-header">
-                                <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Ccircle cx='24' cy='24' r='24' fill='%23ff6b6b'/%3E%3Ctext x='24' y='28' text-anchor='middle' fill='white' font-family='Inter' font-weight='600' font-size='14'%3ESM%3C/text%3E%3C/svg%3E" alt="Sarah Miller" class="post-avatar">
-                                <div class="post-info">
-                                    <div class="post-author">
-                                        <h4>Sarah Miller</h4>
-                                        <span class="verified-badge"><i class="fas fa-check-circle"></i></span>
-                                    </div>
-                                    <div class="post-meta">
-                                        <span class="post-time">2 hours ago</span>
-                                        <span class="post-visibility"><i class="fas fa-globe"></i> Public</span>
-                                    </div>
-                                </div>
-                                <button class="post-menu" aria-label="Post options">
-                                    <i class="fas fa-ellipsis-h"></i>
-                                </button>
-                            </div>
-                            
-                            <div class="post-content">
-                                <p>Just completed my first machine learning project! 🚀 Built a sentiment analysis tool using Python and TensorFlow. The feeling of seeing your model work for the first time is incredible!</p>
-                                <div class="post-tags">
-                                    <span class="tag">#MachineLearning</span>
-                                    <span class="tag">#Python</span>
-                                    <span class="tag">#TensorFlow</span>
-                                    <span class="tag">#AI</span>
-                                </div>
-                            </div>
-                            
-                            <div class="post-engagement">
-                                <div class="engagement-stats">
-                                    <span class="stat">
-                                        <i class="fas fa-thumbs-up"></i>
-                                        12 likes
-                                    </span>
-                                    <span class="stat">3 comments</span>
-                                    <span class="stat">2 shares</span>
-                                </div>
-                            </div>
-                            
-                            <div class="post-actions">
-                                <button class="action-btn" onclick="toggleUpvote(this)">
-                                    <i class="far fa-thumbs-up"></i>
-                                    <span>Like</span>
-                                </button>
-                                <button class="action-btn" onclick="toggleComments(this)">
-                                    <i class="far fa-comment"></i>
-                                    <span>Comment</span>
-                                </button>
-                                <button class="action-btn">
-                                    <i class="fas fa-share"></i>
-                                    <span>Share</span>
-                                </button>
-                                <button class="action-btn bookmark">
-                                    <i class="far fa-bookmark"></i>
-                                    <span>Save</span>
-                                </button>
-                            </div>
-                        </article>
-
-                        <!-- Sample Post 2 -->
-                        <article class="post modern-card" id="sample2">
-                            <div class="post-header">
-                                <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Ccircle cx='24' cy='24' r='24' fill='%234ecdc4'/%3E%3Ctext x='24' y='28' text-anchor='middle' fill='white' font-family='Inter' font-weight='600' font-size='14'%3ERJ%3C/text%3E%3C/svg%3E" alt="Robert Johnson" class="post-avatar">
-                                <div class="post-info">
-                                    <div class="post-author">
-                                        <h4>Robert Johnson</h4>
-                                    </div>
-                                    <div class="post-meta">
-                                        <span class="post-time">4 hours ago</span>
-                                        <span class="post-visibility"><i class="fas fa-users"></i> Connections</span>
-                                    </div>
-                                </div>
-                                <button class="post-menu" aria-label="Post options">
-                                    <i class="fas fa-ellipsis-h"></i>
-                                </button>
-                            </div>
-                            
-                            <div class="post-content">
-                                <p>Looking for recommendations on the best resources to learn React. I'm transitioning from backend development and want to strengthen my frontend skills. Any suggestions? 🤔</p>
-                                <div class="post-tags">
-                                    <span class="tag">#React</span>
-                                    <span class="tag">#Frontend</span>
-                                    <span class="tag">#JavaScript</span>
-                                    <span class="tag">#CareerAdvice</span>
-                                </div>
-                            </div>
-                            
-                            <div class="post-engagement">
-                                <div class="engagement-stats">
-                                    <span class="stat">
-                                        <i class="fas fa-thumbs-up"></i>
-                                        8 likes
-                                    </span>
-                                    <span class="stat">5 comments</span>
-                                    <span class="stat">1 share</span>
-                                </div>
-                            </div>
-                            
-                            <div class="post-actions">
-                                <button class="action-btn" onclick="toggleUpvote(this)">
-                                    <i class="far fa-thumbs-up"></i>
-                                    <span>Like</span>
-                                </button>
-                                <button class="action-btn" onclick="toggleComments(this)">
-                                    <i class="far fa-comment"></i>
-                                    <span>Comment</span>
-                                </button>
-                                <button class="action-btn">
-                                    <i class="fas fa-share"></i>
-                                    <span>Share</span>
-                                </button>
-                                <button class="action-btn bookmark">
-                                    <i class="far fa-bookmark"></i>
-                                    <span>Save</span>
-                                </button>
-                            </div>
-                        </article>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Right Panel -->
-            <aside class="right-panel">
-                <!-- AI Job Recommendations -->
-                <div class="widget ai-recommendations">
-                    <div class="widget-header">
-                        <h3><i class="fas fa-bullseye"></i> Job Matches</h3>
-                        <button class="widget-action" aria-label="View all recommendations">
-                            <i class="fas fa-external-link-alt"></i>
-                        </button>
-                    </div>
-                    <div class="recommendations-list" id="jobRecommendations">
-                        <div class="recommendation-item">
-                            <div class="company-logo">
-                                <i class="fab fa-google"></i>
-                            </div>
-                            <div class="job-info">
-                                <h4 class="job-title">Senior Frontend Developer</h4>
-                                <p class="job-company">Google</p>
-                                <div class="job-match">
-                                    <span class="match-score">95% match</span>
-                                    <span class="job-salary">$120k - $180k</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="recommendation-item">
-                            <div class="company-logo">
-                                <i class="fab fa-microsoft"></i>
-                            </div>
-                            <div class="job-info">
-                                <h4 class="job-title">Full Stack Engineer</h4>
-                                <p class="job-company">Google</p>
-                                <div class="job-match">
-                                    <span class="match-score">95% match</span>
-                                    <span class="job-salary">$120k - $180k</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="recommendation-item">
-                            <div class="company-logo">
-                                <i class="fab fa-microsoft"></i>
-                            </div>
-                            <div class="job-info">
-                                <h4 class="job-title">Full Stack Engineer</h4>
-                                <p class="job-company">Microsoft</p>
-                                <div class="job-match">
-                                    <span class="match-score">88% match</span>
-                                    <span class="job-salary">$110k - $160k</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="recommendation-item">
-                            <div class="company-logo">
-                                <i class="fab fa-amazon"></i>
-                            </div>
-                            <div class="job-info">
-                                <h4 class="job-title">Software Engineer II</h4>
-                                <p class="job-company">Amazon</p>
-                                <div class="job-match">
-                                    <span class="match-score">82% match</span>
-                                    <span class="job-salary">$105k - $155k</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Growth Metrics -->
-                <div class="widget growth-metrics">
-                    <div class="widget-header">
-                        <h3><i class="fas fa-chart-line"></i> Your Growth</h3>
-                    </div>
-                    <div class="metrics-grid">
-                        <div class="metric-item">
-                            <div class="metric-header">
-                                <span class="metric-label">Profile Views</span>
-                                <span class="metric-change positive">+12%</span>
-                            </div>
-                            <div class="metric-value">247</div>
-                            <div class="metric-chart">
-                                <div class="chart-bar" style="height: 60%"></div>
-                                <div class="chart-bar" style="height: 80%"></div>
-                                <div class="chart-bar" style="height: 45%"></div>
-                                <div class="chart-bar" style="height: 90%"></div>
-                                <div class="chart-bar" style="height: 100%"></div>
-                            </div>
-                        </div>
-                        
-                        <div class="metric-item">
-                            <div class="metric-header">
-                                <span class="metric-label">Profile Completeness</span>
-                                <span class="metric-value">85%</span>
-                            </div>
-                            <div class="progress-bar">
-                                <div class="progress-fill" style="width: 85%"></div>
-                            </div>
-                        </div>
-                        
-                        <div class="metric-item">
-                            <div class="metric-header">
-                                <span class="metric-label">Skill Assessment</span>
-                                <span class="metric-value">92%</span>
-                            </div>
-                            <div class="progress-bar">
-                                <div class="progress-fill" style="width: 92%"></div>
-                            </div>
-                        </div>
-                        
-                        <div class="metric-item">
-                            <div class="metric-header">
-                                <span class="metric-label">Network Growth</span>
-                                <span class="metric-change positive">+18</span>
-                            </div>
-                            <div class="metric-value">1,247</div>
-                            <div class="metric-subtitle">connections this month</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Trending Topics -->
-                <div class="widget trending-topics">
-                    <div class="widget-header">
-                        <h3><i class="fas fa-fire"></i> Trending</h3>
-                    </div>
-                    <div class="trending-list">
-                        <div class="trending-item">
-                            <span class="trend-rank">1</span>
-                            <div class="trend-info">
-                                <span class="trend-topic">#RemoteWork</span>
-                                <span class="trend-posts">2.3k posts</span>
-                            </div>
-                        </div>
-                        <div class="trending-item">
-                            <span class="trend-rank">2</span>
-                            <div class="trend-info">
-                                <span class="trend-topic">#AI</span>
-                                <span class="trend-posts">1.8k posts</span>
-                            </div>
-                        </div>
-                        <div class="trending-item">
-                            <span class="trend-rank">3</span>
-                            <div class="trend-info">
-                                <span class="trend-topic">#WebDevelopment</span>
-                                <span class="trend-posts">1.4k posts</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </aside>
-        </main>
+          </div>
+          <div class="metric">
+            <p>Profile Completeness</p>
+            <span class="metric-value">92%</span>
+            <div class="metric-progress">
+              <div class="progress-bar" style="width: 92%;"></div>
+            </div>
+          </div>
+          <div class="metric">
+            <p>Connection Growth</p>
+            <span class="metric-value">+15%</span>
+            <div class="metric-chart">
+              <div class="bar" style="width: 30%;"></div>
+              <div class="bar" style="width: 50%;"></div>
+              <div class="bar" style="width: 70%;"></div>
+              <div class="bar" style="width: 40%;"></div>
+              <div class="bar" style="width: 60%;"></div>
+            </div>
+          </div>
+        </div>
+        <div class="trending-topics modern-card">
+          <h4>Trending Topics</h4>
+          <ul>
+            <li><a href="#">#WebDevelopment</a> <span>1.5k posts</span></li>
+            <li><a href="#">#MachineLearning</a> <span>980 posts</span></li>
+            <li><a href="#">#CareerGrowth</a> <span>720 posts</span></li>
+            <li><a href="#">#CloudComputing</a> <span>650 posts</span></li>
+          </ul>
+        </div>
+      </aside>
     </div>
-
-    <script src="../js/dashboard.js"></script>
-    <script src="../js/auth.js"></script>
+  </div>
 </body>
 </html>
-          
